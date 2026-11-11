@@ -182,6 +182,9 @@ body.locked{overflow:hidden}
 <!-- Google Analytics 4 -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-421QZPKDMQ"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config","G-421QZPKDMQ",{anonymize_ip:true});</script>
+<!-- Meta Pixel -->
+<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','1685663726329361');fbq('track','PageView');</script>
+<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1685663726329361&ev=PageView&noscript=1" alt=""></noscript>
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
@@ -346,7 +349,12 @@ body.locked{overflow:hidden}
 <script>
 // Qualifying quiz: every "Check availability" button opens it; the calendar only shows once they qualify.
 (function(){
-  function track(name,params){if(window.gtag)gtag('event',name,Object.assign({page:'go'},params||{}));}
+  // Meta Pixel: qualified quiz = Lead, booked call = Schedule (what the ads optimize for)
+  var META={quiz_start:['trackCustom','QuizStart'],quiz_qualified:['track','Lead'],quiz_disqualified:['trackCustom','QuizDisqualified'],booking_made:['track','Schedule']};
+  function track(name,params){
+    if(window.gtag)gtag('event',name,Object.assign({page:'go'},params||{}));
+    var m=META[name];if(m&&window.fbq)fbq(m[0],m[1],Object.assign({content_name:'go_30min_call'},params||{}));
+  }
   // o: [label, result] where result is 1 = next question, 0 = disqualify, 'cal' = straight to the calendar
   var Q=[
     {k:'Company',q:'What best describes your company?',o:[['We manufacture our own products',1],['We distribute industrial products',1],['We serve manufacturers or plants (services, contracting, engineering)',1],['Something else (software, agency, consulting, retail)',0]]},
