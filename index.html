@@ -350,7 +350,9 @@ body.locked{overflow:hidden}
 // Qualifying quiz: every "Check availability" button opens it; the calendar only shows once they qualify.
 (function(){
   // Meta Pixel: qualified quiz = Lead, booked call = Schedule (what the ads optimize for)
-  var META={quiz_start:['trackCustom','QuizStart'],quiz_qualified:['track','Lead'],quiz_disqualified:['trackCustom','QuizDisqualified'],booking_made:['track','Schedule']};
+  // Funnel tracking: quiz_step_view (saw question N), quiz_answer (step + answer), quiz_exit (closed or left mid-quiz,
+  // with how far they got), calendar_abandon (qualified but left without booking). Same events go to GA4 and Meta.
+  var META={quiz_start:['trackCustom','QuizStart'],quiz_answer:['trackCustom','QuizAnswer'],quiz_exit:['trackCustom','QuizExit'],quiz_qualified:['track','Lead'],quiz_disqualified:['trackCustom','QuizDisqualified'],calendar_abandon:['trackCustom','CalendarAbandon'],booking_made:['track','Schedule']};
   function track(name,params){
     if(window.gtag)gtag('event',name,Object.assign({page:'go'},params||{}));
     var m=META[name];if(m&&window.fbq)fbq(m[0],m[1],Object.assign({content_name:'go_30min_call'},params||{}));
@@ -375,18 +377,31 @@ body.locked{overflow:hidden}
   var TOTAL=Q.length-1; // the last question only shows when they answer No to "final decision maker"
   var m=document.getElementById('qm'),box=document.getElementById('qbox'),qv=document.getElementById('qv'),cv=document.getElementById('cv');
   var step=0,ans=[],qualified=false,calLoaded=false,lastFocus=null,started=false;
+  var seen={},furthest=0,dqd=false,booked=false,exitSent=false;
+
+  // Fires once per visit to the quiz when they leave it unfinished (close button, click outside, Esc, or leaving the page).
+  function exitQuiz(how){
+    if(!started||exitSent||!m.classList.contains('open'))return;
+    if(qualified){if(!booked){exitSent=true;track('calendar_abandon',{how:how,answers_given:ans.length});}return;}
+    if(dqd)return;
+    exitSent=true;
+    track('quiz_exit',{how:how,last_step:step+1,last_question:Q[step].k,furthest_step:furthest,answers_given:ans.length});
+  }
 
   function open(src){
     lastFocus=document.activeElement;
     m.classList.add('open');document.body.classList.add('locked');
+    exitSent=false;
     if(!started){started=true;track('quiz_start',{cta:src});}
     qualified?showCal():render();
   }
-  function close(){m.classList.remove('open');document.body.classList.remove('locked');if(lastFocus)lastFocus.focus();}
+  function close(){exitQuiz('closed');m.classList.remove('open');document.body.classList.remove('locked');if(lastFocus)lastFocus.focus();}
+  window.addEventListener('pagehide',function(){exitQuiz('left_page');});
 
   function render(){
-    box.classList.remove('wide');cv.hidden=true;qv.hidden=false;
+    box.classList.remove('wide');cv.hidden=true;qv.hidden=false;dqd=false;
     var s=Q[step],n=Math.min(step+1,TOTAL);
+    if(!seen[step]){seen[step]=true;furthest=Math.max(furthest,step+1);track('quiz_step_view',{step:step+1,question:s.k});}
     var h='<div class="prog"><i style="width:'+((n-1)/TOTAL*100)+'%"></i></div>'+
       '<div class="qstep">Question '+n+' of '+TOTAL+'</div>'+
       '<h3 id="qh">'+s.q+'</h3><div class="opts'+(s.o.length===2?' yn':'')+'">';
@@ -400,14 +415,14 @@ body.locked{overflow:hidden}
   function pick(i){
     var s=Q[step],o=s.o[i];
     ans[step]=o[0];ans.length=step+1;
-    track('quiz_answer',{question:s.k,answer:o[0]});
+    track('quiz_answer',{step:step+1,question:s.k,answer:o[0]});
     if(o[1]===0)return dq(s.k);
     if(o[1]==='cal'){qualified=true;track('quiz_qualified',{final_decision_maker:s.k==='Final decision maker'});return showCal();}
     step++;render();
   }
 
   function dq(k){
-    track('quiz_disqualified',{reason:k});
+    dqd=true;track('quiz_disqualified',{reason:k,step:step+1});
     qv.innerHTML='<div class="msg"><h3 id="qh">Thanks for your honesty.</h3><p>'+DQ[k]+'</p>'+
       '<a class="btn" href="https://www.synapsemfg.com/">Visit synapsemfg.com</a><br><button type="button" class="back">&larr; Change my answer</button></div>';
   }
@@ -423,7 +438,7 @@ body.locked{overflow:hidden}
     Cal('init','go30',{origin:'https://app.cal.com'});
     Cal.ns.go30('inline',{elementOrSelector:'#cal-inline',calLink:'synapsemfg/30min',config:{layout:'month_view',theme:'dark','ui.color-scheme':'dark',notes:notes()}});
     Cal.ns.go30('ui',{cssVarsPerTheme:{dark:{'cal-brand':'#4a9eff'}},hideEventTypeDetails:false,colorScheme:'dark',layout:'month_view'});
-    Cal.ns.go30('on',{action:'bookingSuccessful',callback:function(){track('booking_made');}});
+    Cal.ns.go30('on',{action:'bookingSuccessful',callback:function(){booked=true;track('booking_made',{answers_given:ans.length});}});
   }
 
   qv.addEventListener('click',function(e){
