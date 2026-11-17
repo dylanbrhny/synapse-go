@@ -152,6 +152,17 @@ body.locked{overflow:hidden}
 .msg .btn{font-size:16px;padding:14px 24px}
 .ok-badge{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--green);background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);padding:5px 11px;border-radius:999px;margin-bottom:12px}
 .cv-sub{color:var(--text2);margin:-10px 0 16px;font-size:15px}
+.dm-sub{color:var(--text2);margin:-8px 0 18px;font-size:15px}
+.dm-row{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin-bottom:10px}
+.dm-row input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:rgba(7,11,22,.55);color:var(--text);font:inherit;font-size:16px}
+.dm-row input:focus{outline:none;border-color:var(--accent-line);background:var(--accent-dim)}
+.dm-row input[aria-invalid="true"]{border-color:#ef4444}
+.dm-err{color:#f87171;font-size:14px;margin:4px 0 10px;min-height:1em}
+.dm-add{background:none;border:0;color:var(--accent);font:inherit;font-size:14px;cursor:pointer;padding:2px 0;margin-bottom:16px}
+.dm-actions{display:flex;flex-wrap:wrap;align-items:center;gap:16px}
+.dm-actions .btn{font-size:16px;padding:14px 24px}
+.dm-skip{background:none;border:0;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;padding:4px 0;text-decoration:underline}
+@media (max-width:560px){.dm-row{grid-template-columns:1fr}}
 #cal-inline{width:100%;min-height:600px;overflow:auto;color-scheme:dark;border-radius:12px}
 .cal-load{display:grid;place-items:center;min-height:300px;color:var(--muted);font-size:14px}
 
@@ -365,18 +376,18 @@ body.locked{overflow:hidden}
     {k:'Close rate',q:'Out of 10 qualified first meetings, how many become customers?',o:[['1 or fewer',1],['2 to 3',1],['4 to 5',1],['More than 5',1],['Not sure yet',1]]},
     {k:'Role',q:'What is your role?',o:[['Owner or founder',1],['President or CEO',1],['Sales or marketing leader',1],['Something else',1]]},
     {k:'Commit',q:'If this is a fit, how soon can you commit?',o:[['On the call',1],['This week',1],['Within 30 days',1],['31+ days',0]]},
-    {k:'Final decision maker',q:'Are you the final decision maker?',o:[['Yes',"cal"],['No',1]]},
-    {k:'Decision maker joins',q:'Can the final decision maker join the call?',o:[['Yes',"cal"],['No',0]]}
+    {k:'Final decision maker',q:'Are you the sole decision maker?',o:[['Yes',"cal"],['No, someone else signs off too',1]]},
+    {k:'Decision maker email',dm:true,q:'Add the other decision maker to the invite.'}
   ];
   var DQ={
     'Company':'We only work with manufacturers and the industrial companies that sell to them. Every script, list and salesperson we build is for that world, so we would not be the right fit for you.',
     'Customer value':'Pay per meeting works when a new customer is worth $10,000 or more. Below that, the meetings cost more than they return, so we would not be the right fit right now.',
     'Commit':'Sounds like the timing isn\'t right yet. Our onboarding spots go to companies ready to start within 30 days. Come back when you are, and we\'ll pick it up from there.',
-    'Decision maker joins':'This call is where we set your price and decide together, so the final decision maker needs to be on it. When they can join, come back and pick a time.'
+    'Decision maker joins':'This call is where we set your price and decide together, so every decision maker needs to be on it. When they can join, come back and pick a time.'
   };
-  var TOTAL=Q.length-1; // the last question only shows when they answer No to "final decision maker"
+  var TOTAL=Q.length-1; // the decision maker email step only shows when they answer No to "sole decision maker"
   var m=document.getElementById('qm'),box=document.getElementById('qbox'),qv=document.getElementById('qv'),cv=document.getElementById('cv');
-  var step=0,ans=[],qualified=false,calLoaded=false,lastFocus=null,started=false;
+  var step=0,ans=[],qualified=false,calLoaded=false,lastFocus=null,started=false,dms=[];
   var seen={},furthest=0,dqd=false,booked=false,exitSent=false;
 
   // Fires once per visit to the quiz when they leave it unfinished (close button, click outside, Esc, or leaving the page).
@@ -387,6 +398,8 @@ body.locked{overflow:hidden}
     exitSent=true;
     track('quiz_exit',{how:how,last_step:step+1,last_question:Q[step].k,furthest_step:furthest,answers_given:ans.length});
   }
+  var EMAIL=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  function esc(v){return String(v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 
   function open(src){
     lastFocus=document.activeElement;
@@ -402,6 +415,7 @@ body.locked{overflow:hidden}
     box.classList.remove('wide');cv.hidden=true;qv.hidden=false;dqd=false;
     var s=Q[step],n=Math.min(step+1,TOTAL);
     if(!seen[step]){seen[step]=true;furthest=Math.max(furthest,step+1);track('quiz_step_view',{step:step+1,question:s.k});}
+    if(s.dm)return renderDm(n);
     var h='<div class="prog"><i style="width:'+((n-1)/TOTAL*100)+'%"></i></div>'+
       '<div class="qstep">Question '+n+' of '+TOTAL+'</div>'+
       '<h3 id="qh">'+s.q+'</h3><div class="opts'+(s.o.length===2?' yn':'')+'">';
@@ -410,6 +424,47 @@ body.locked{overflow:hidden}
     qv.innerHTML=h;
     requestAnimationFrame(function(){var p=qv.querySelector('.prog i');if(p)p.style.width=(n/TOTAL*100)+'%';});
     qv.querySelector('.opt').focus();
+  }
+
+  // Not the sole decision maker: the calendar only opens once the other decision maker's email is in, and they're added to the invite.
+  function dmRow(d,i){
+    return '<div class="dm-row"><input type="text" name="dmname" autocomplete="off" placeholder="Their name" aria-label="Decision maker '+(i+1)+' name" value="'+esc(d.name||'')+'">'+
+      '<input type="email" name="dmemail" autocomplete="off" inputmode="email" placeholder="their@company.com" aria-label="Decision maker '+(i+1)+' work email'+(i?'':' (required)')+'"'+(i?'':' required')+' value="'+esc(d.email||'')+'"></div>';
+  }
+  function renderDm(n){
+    var rows=dms.length?dms:[{}];
+    var h='<div class="prog"><i style="width:'+((n-1)/TOTAL*100)+'%"></i></div>'+
+      '<div class="qstep">Question '+n+' of '+TOTAL+'</div>'+
+      '<h3 id="qh">'+Q[step].q+'</h3>'+
+      '<p class="dm-sub">This call is where we set your price, so everyone who signs off needs to be on it. They\'ll get the calendar invite with you.</p>'+
+      '<form class="dm-form" novalidate><div class="dm-rows">'+rows.map(dmRow).join('')+'</div>'+
+      '<div class="dm-err" role="alert"></div>'+
+      (rows.length<3?'<button type="button" class="dm-add">+ Add another decision maker</button>':'')+
+      '<div class="dm-actions"><button type="submit" class="btn">Add to invite &amp; pick a time</button>'+
+      '<button type="button" class="dm-skip">They can\'t join a call</button></div></form>'+
+      '<button type="button" class="back">&larr; Back</button>';
+    qv.innerHTML=h;
+    requestAnimationFrame(function(){var p=qv.querySelector('.prog i');if(p)p.style.width=(n/TOTAL*100)+'%';});
+    var first=qv.querySelector('input[name="dmemail"]');(first.value?qv.querySelector('.btn'):qv.querySelector('input[name="dmname"]')).focus();
+  }
+  function readDm(){
+    var names=qv.querySelectorAll('input[name="dmname"]'),emails=qv.querySelectorAll('input[name="dmemail"]'),out=[];
+    emails.forEach(function(e,i){out.push({name:names[i].value.trim(),email:e.value.trim()});});
+    return out;
+  }
+  function submitDm(){
+    var rows=readDm(),err=qv.querySelector('.dm-err'),bad=null;
+    qv.querySelectorAll('input[name="dmemail"]').forEach(function(e,i){
+      var v=rows[i].email,ok=i?(!v||EMAIL.test(v)):EMAIL.test(v);
+      e.setAttribute('aria-invalid',ok?'false':'true');if(!ok&&!bad)bad=e;
+    });
+    if(bad){err.textContent=rows[0].email?'Check the email address.':'Add the other decision maker\'s email to continue.';bad.focus();return;}
+    dms=rows.filter(function(d){return d.email;});
+    ans[step]=dms.length+' added';ans.length=step+1;
+    track('quiz_answer',{step:step+1,question:Q[step].k,answer:'added'});
+    track('quiz_dm_added',{count:dms.length});
+    qualified=true;track('quiz_qualified',{final_decision_maker:false});
+    showCal();
   }
 
   function pick(i){
@@ -427,29 +482,41 @@ body.locked{overflow:hidden}
       '<a class="btn" href="https://www.synapsemfg.com/">Visit synapsemfg.com</a><br><button type="button" class="back">&larr; Change my answer</button></div>';
   }
 
-  function notes(){return 'Answers from go.synapsemfg.com\n'+Q.map(function(s,i){return ans[i]?s.k+': '+ans[i]:null;}).filter(Boolean).join('\n');}
+  function notes(){
+    var n='Answers from go.synapsemfg.com\n'+Q.map(function(s,i){return ans[i]&&!s.dm?s.k+': '+ans[i]:null;}).filter(Boolean).join('\n');
+    if(dms.length)n+='\nOther decision makers (added as guests): '+dms.map(function(d){return (d.name?d.name+' ':'')+'<'+d.email+'>';}).join(', ');
+    return n;
+  }
 
   function showCal(){
     qv.hidden=true;cv.hidden=false;box.classList.add('wide');
     document.getElementById('qx').focus();
+    if(dms.length){
+      document.getElementById('cvh').textContent='Pick a time that works for both of you.';
+      cv.querySelector('.cv-sub').textContent=dms.map(function(d){return d.name||d.email;}).join(' and ')+' will get the invite with you. Keep them on the guest list when you book.';
+    }
     if(calLoaded)return;calLoaded=true;
     (function(C,A,L){var p=function(a,ar){a.q.push(ar);};var d=C.document;C.Cal=C.Cal||function(){var cal=C.Cal,ar=arguments;if(!cal.loaded){cal.ns={};cal.q=cal.q||[];d.head.appendChild(d.createElement('script')).src=A;cal.loaded=true;}if(ar[0]===L){var api=function(){p(api,arguments);};var ns=ar[1];api.q=api.q||[];if(typeof ns==='string'){cal.ns[ns]=cal.ns[ns]||api;p(cal.ns[ns],ar);p(cal,['initNamespace',ns]);}else p(cal,ar);return;}p(cal,ar);};})(window,'https://app.cal.com/embed/embed.js','init');
     document.getElementById('cal-inline').innerHTML='';
     Cal('init','go30',{origin:'https://app.cal.com'});
-    Cal.ns.go30('inline',{elementOrSelector:'#cal-inline',calLink:'synapsemfg/30min',config:{layout:'month_view',theme:'dark','ui.color-scheme':'dark',notes:notes()}});
+    Cal.ns.go30('inline',{elementOrSelector:'#cal-inline',calLink:'synapsemfg/30min',config:Object.assign({layout:'month_view',theme:'dark','ui.color-scheme':'dark',notes:notes()},dms.length?{guests:dms.map(function(d){return d.email;})}:{})});
     Cal.ns.go30('ui',{cssVarsPerTheme:{dark:{'cal-brand':'#4a9eff'}},hideEventTypeDetails:false,colorScheme:'dark',layout:'month_view'});
     Cal.ns.go30('on',{action:'bookingSuccessful',callback:function(){booked=true;track('booking_made',{answers_given:ans.length});}});
   }
 
   qv.addEventListener('click',function(e){
     var o=e.target.closest('.opt');if(o)return pick(+o.getAttribute('data-i'));
-    if(e.target.closest('.back')){if(!qv.querySelector('.msg'))step=Math.max(0,step-1);render();}
+    if(e.target.closest('.dm-add')){dms=readDm();dms.push({});renderDm(Math.min(step+1,TOTAL));var r=qv.querySelectorAll('input[name="dmname"]');r[r.length-1].focus();return;}
+    if(e.target.closest('.dm-skip')){dms=readDm();ans[step]='Cannot join';ans.length=step+1;track('quiz_answer',{step:step+1,question:Q[step].k,answer:'cannot join'});return dq('Decision maker joins');}
+    if(e.target.closest('.back')){if(Q[step].dm&&!qv.querySelector('.msg'))dms=readDm();if(!qv.querySelector('.msg'))step=Math.max(0,step-1);render();}
   });
+  qv.addEventListener('submit',function(e){e.preventDefault();submitDm();});
   document.getElementById('qx').addEventListener('click',close);
   m.addEventListener('click',function(e){if(e.target===m)close();});
   document.addEventListener('keydown',function(e){
     if(!m.classList.contains('open'))return;
     if(e.key==='Escape')return close();
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;
     var k=e.key.toUpperCase();
     if(k==='Y')k='A';else if(k==='N')k='B';
     if(!qv.hidden&&/^[A-E1-5]$/.test(k)){var i=/\d/.test(k)?k-1:k.charCodeAt(0)-65,b=qv.querySelector('.opt[data-i="'+i+'"]');if(b)b.click();}
