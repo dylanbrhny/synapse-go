@@ -542,6 +542,34 @@ body.locked{overflow:hidden}
   document.querySelectorAll('[data-cta]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();open(a.getAttribute('data-cta'));});});
 })();
 
+// Engaged visitor: a human-only signal for judging and optimizing ads. PageView fires on any load, bots included;
+// this fires once per visit, either on a real click of a "Check availability" button, or after 10 seconds with the
+// page in view plus a real scroll, tap, key press or mouse movement. Automated browsers (navigator.webdriver) never fire it.
+(function(){
+  if(navigator.webdriver)return;
+  var fired=false,interacted=false,visibleMs=0,last=null,moved=0,mx=null,my=null,timer=null;
+  function fire(reason){
+    if(fired)return;fired=true;clearInterval(timer);
+    var secs=Math.round(visibleMs/1000);
+    if(window.gtag)gtag('event','engaged_visitor',{page:'go',reason:reason,seconds_visible:secs});
+    if(window.fbq)fbq('trackCustom','EngagedVisitor',{content_name:'go_30min_call',reason:reason,seconds_visible:secs});
+  }
+  function check(){if(interacted&&visibleMs>=10000)fire('time_and_interaction');}
+  function human(e){if(e.isTrusted){interacted=true;check();}}
+  ['pointerdown','keydown','touchstart','wheel'].forEach(function(t){addEventListener(t,human,{passive:true,capture:true});});
+  addEventListener('mousemove',function(e){
+    if(!e.isTrusted||interacted)return;
+    if(mx!==null)moved+=Math.abs(e.clientX-mx)+Math.abs(e.clientY-my);
+    mx=e.clientX;my=e.clientY;if(moved>150)human(e);
+  },{passive:true});
+  document.addEventListener('click',function(e){if(e.isTrusted&&e.target.closest&&e.target.closest('[data-cta]'))fire('cta_click');},true);
+  timer=setInterval(function(){
+    var now=Date.now();
+    if(document.visibilityState==='visible'&&last!==null)visibleMs+=Math.min(now-last,2000);
+    last=now;check();
+  },1000);
+})();
+
 // Tab nudge: when the visitor switches tabs, the title and favicon flash until they come back.
 (function(){
   var fav=document.getElementById('fav'),baseFav=fav.href,baseTitle=document.title;
